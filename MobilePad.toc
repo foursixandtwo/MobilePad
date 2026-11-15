@@ -1,0 +1,8 @@
+## Interface: 16001
+## Title: MobilePad
+## Notes: Custom controller keybindings that do not overwrite keyboard bindings.
+## Author: Fusion
+## Version: 1.0
+## SavedVariables: MobilePadDB
+
+MobilePad.lua
