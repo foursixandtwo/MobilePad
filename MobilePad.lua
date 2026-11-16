@@ -4,7 +4,7 @@ local pendingApply = false
 local uiFrame = nil
 local minimapBtn = nil
 local cursorModeActive = false
-local DB_VERSION = 11
+local DB_VERSION = 12
 
 local PROFILE_LABELS = {
     mobile = "Mobile (8BitDo)",
@@ -42,6 +42,7 @@ local DEFAULT_BINDINGS = {
     { cmd = "OPENALLBAGS",             label = "Open All Bags (Left)",             key = "PADDLEFT" },
     { cmd = "TOGGLEWORLDMAP",          label = "World Map (Right)",                key = "PADDRIGHT" },
     { cmd = "MOBILEPAD_CURSOR",        label = "Cursor Mode (Select / View)",      key = "PADBACK" },
+    { cmd = "MOBILEPAD_STANCE",        label = "Berserker / Battle (LB + RB)",     key = "SHIFT-PADRSHOULDER" },
     { cmd = "TOGGLEGAMEMENU",          label = "Escape / Menu (Start / Menu)",     key = "PADFORWARD" },
     { cmd = "TOGGLEQUESTLOG",          label = "Quest Log (Xbox Share)",           key = nil, xboxKey = "PADSOCIAL" },
 }
@@ -93,6 +94,12 @@ SecureHandlerWrapScript(ltModBtn, "OnClick", ltModBtn, [[
 -- Button to toggle cursor mode with Select (-) / View
 local cursorToggleBtn = CreateFrame("Button", "MobilePadCursorToggle", UIParent, "SecureActionButtonTemplate")
 cursorToggleBtn:RegisterForClicks("AnyDown")
+
+-- Combat-safe toggle between Berserker Stance and Battle Stance (LB + RB)
+local stanceToggleBtn = CreateFrame("Button", "MobilePadStanceToggle", UIParent, "SecureActionButtonTemplate")
+stanceToggleBtn:SetAttribute("type", "macro")
+stanceToggleBtn:SetAttribute("macrotext", "/cast [stance:3] Battle Stance; Berserker Stance")
+stanceToggleBtn:RegisterForClicks("AnyDown")
 
 -- Clear indicator at top of screen when cursor mode is active
 local cursorBadge = CreateFrame("Frame", "MobilePadCursorBadge", UIParent, "BackdropTemplate")
@@ -386,6 +393,19 @@ local function InitDB()
         end
     end
 
+    if (MobilePadDB.version or 0) < 12 then
+        for _, prof in pairs(MobilePadDB.profiles) do
+            if type(prof) == "table" and type(prof.bindings) == "table" and prof.bindings["MOBILEPAD_STANCE"] == nil then
+                prof.bindings["MOBILEPAD_STANCE"] = "SHIFT-PADRSHOULDER"
+            end
+        end
+    end
+
+    -- Discard legacy UIParent-anchored minimapPos that could place the button off-minimap
+    if type(MobilePadDB.minimapPos) == "table" and (MobilePadDB.minimapPos.dx == nil or MobilePadDB.minimapPos.dy == nil) then
+        MobilePadDB.minimapPos = nil
+    end
+
     MobilePadDB.bindings = nil
     MobilePadDB.version = DB_VERSION
 end
@@ -488,6 +508,8 @@ local function ApplyBindings()
         if key and key ~= "" then
             if cmd == "MOBILEPAD_CURSOR" then
                 SetOverrideBindingClick(f, true, key, "MobilePadCursorToggle")
+            elseif cmd == "MOBILEPAD_STANCE" then
+                SetOverrideBindingClick(f, true, key, "MobilePadStanceToggle")
             else
                 SetOverrideBinding(f, true, key, cmd)
             end
@@ -586,9 +608,10 @@ local function CreateMinimapButton()
     if minimapBtn then return end
     local btn = CreateFrame("Button", "MobilePadMinimapButton", Minimap)
     btn:SetSize(32, 32)
-    if MobilePadDB and MobilePadDB.minimapPos then
-        local pos = MobilePadDB.minimapPos
-        btn:SetPoint(pos.point or "BOTTOMLEFT", UIParent, pos.relPoint or "BOTTOMLEFT", pos.x or 0, pos.y or 0)
+    btn:SetClampedToScreen(true)
+    local pos = MobilePadDB and MobilePadDB.minimapPos
+    if type(pos) == "table" and pos.dx and pos.dy and math.abs(pos.dx) <= 220 and math.abs(pos.dy) <= 220 then
+        btn:SetPoint("CENTER", Minimap, "CENTER", pos.dx, pos.dy)
     else
         btn:SetPoint("BOTTOMLEFT", Minimap, "BOTTOMLEFT", -2, 2)
     end
@@ -598,13 +621,22 @@ local function CreateMinimapButton()
     btn:SetMovable(true)
     btn:RegisterForDrag("LeftButton")
     btn:SetScript("OnDragStart", function(self)
-        if IsShiftKeyDown() then self:StartMoving() end
+        if IsShiftKeyDown() then
+            self._dragging = true
+            self:StartMoving()
+        end
     end)
     btn:SetScript("OnDragStop", function(self)
+        if not self._dragging then return end
+        self._dragging = false
         self:StopMovingOrSizing()
-        if MobilePadDB then
-            local pt, _, relPt, x, y = self:GetPoint(1)
-            MobilePadDB.minimapPos = { point = pt, relPoint = relPt, x = x, y = y }
+        local bx, by = self:GetCenter()
+        local mx, my = Minimap:GetCenter()
+        if MobilePadDB and bx and by and mx and my then
+            local dx, dy = bx - mx, by - my
+            MobilePadDB.minimapPos = { dx = dx, dy = dy }
+            self:ClearAllPoints()
+            self:SetPoint("CENTER", Minimap, "CENTER", dx, dy)
         end
     end)
 
@@ -808,7 +840,7 @@ function CreateConfigUI()
     end)
 
     listener:SetScript("OnGamePadButtonDown", function(_, button)
-        if MODIFIER_BUTTONS[button] then
+        if MODIFIER_BUTTONS[button] and not (IsShiftKeyDown() and button ~= "PADLSHOULDER") then
             heldMod = button
             return
         end
@@ -941,6 +973,9 @@ f:SetScript("OnEvent", function(_, event, arg1)
     elseif event == "PLAYER_LOGIN" then
         CreateMinimapButton()
         ApplyBindings()
+        if GetCVar("threatShowNumeric") ~= "1" then
+            pcall(SetCVar, "threatShowNumeric", 1)
+        end
     elseif event == "PLAYER_ENTERING_WORLD" then
         C_Timer.After(1, ApplyScale)
         RebuildQuestCache()

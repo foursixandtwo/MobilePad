@@ -18,6 +18,7 @@ Custom World of Warcraft controller keybindings addon that leaves your desktop k
 |---|---|
 | `X` / `Y` / `B` / `A` | Action Bar 1 (Buttons 1–4) |
 | `LB` + `X` / `Y` / `B` / `A` | Action Bar 2 (Buttons 1–4) |
+| `LB` + `RB` | Toggle Berserker Stance ↔ Battle Stance |
 | `LB` + D-pad | Action Bar 2 (Buttons 5–7 & 12) |
 | `LT` + `X` / `Y` / `B` / `A` | Action Bar 1 (Buttons 5–8) |
 | `LT` + `Up` / `Down` | Previous / Next Action Bar Page |
